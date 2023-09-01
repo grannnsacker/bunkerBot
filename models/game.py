@@ -14,7 +14,7 @@ class Game(Base):
     end_time = Column(DateTime)
     chat_name = Column(String)
     start_message_id = Column(String)
-
+    invite_link_to_chat = Column(String)
     host_id = Column(Integer, ForeignKey('users.id'), index=True)
 
     '''disaster'''
