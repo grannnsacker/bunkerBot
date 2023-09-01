@@ -16,7 +16,7 @@ def register_handlers_client(dp: Dispatcher):
     dp.register_message_handler(command_me, commands=['me'])  # отработка вывода
     dp.register_message_handler(web_app_, commands=['web'])  # отработка вывода
     dp.register_message_handler(command_profile, commands=['profile'])  # отработка вывода
-    dp.register_callback_query_handler(start_game, text="start_game")
+    dp.register_callback_query_handler(start_game, lambda x: "start_game" in x.data)
     dp.register_callback_query_handler(close_card_message_handler, lambda x: "close_card_message" in x.data)
     # отработка закрытия панель карты, когда нечего вскрыт
     dp.register_callback_query_handler(open_callback_handler, lambda x: "open" in x.data and "card" not in x.data)

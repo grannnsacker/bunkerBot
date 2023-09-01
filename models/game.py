@@ -12,11 +12,10 @@ class Game(Base):
     turn = Column(Integer, default=0)
     start_time = Column(DateTime)
     end_time = Column(DateTime)
-    current_players_count = Column(Integer)
     chat_name = Column(String)
     start_message_id = Column(String)
 
-    settings_id = Column(Integer, ForeignKey('settings.id'), index=True)
+    host_id = Column(Integer, ForeignKey('users.id'), index=True)
 
     '''disaster'''
     disaster = Column(String)
@@ -35,4 +34,3 @@ class Game(Base):
     '''# expm: Из-а случайно созданного учёными вируса, поражающео исключительно людей,
      половина человечества превратилась в опасных хищников.'''
     players = relationship("Player", back_populates="game")
-    #settings_id =

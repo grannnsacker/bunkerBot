@@ -5,26 +5,27 @@ from aiogram import types
 from controlers.game import get_game_by_chat_id, \
     get_players_usernames_by_chat_id, get_message_id_by_chat_id, get_players_id_by_chat_id, get_turn_by_chat_id
 from controlers.player import get_player_by_user_id
-from controlers.user import get_user_by_user_id, register_user
+from controlers.setting import get_settings_by_id
+from controlers.user import get_user_by_user_id, register_user, get_user_by_id
 from create_bot import bot
 from generation.generate import generate_person
 from models import Player
 from store import postgresDB
 
 from handlers.callback_query_handlers import round
-from text.text_returner import profile_text
+from text.text_returner import get_profile_text, get_me_text, get_apocalypses_and_bunker_text
 
 
 async def command_start(message: types.Message):
     session = postgresDB.get_session()
     if get_user_by_user_id(str(message.from_user.id), session) is None:
         register_user(message.from_user.username, message.from_user.id, session)
+        session.commit()
     if message.chat.type == "private":
         if len(message.text.split()) > 1:
             chat_id = message.text.split()[1]
             game = get_game_by_chat_id(chat_id, session)
-
-            if len(game.players) + 1 <= game.max_players \
+            if len(game.players) + 1 <= get_user_by_id(game.host_id, session).settings.max_players \
                     and message.from_user.username not in get_players_usernames_by_chat_id(chat_id, session):
                 game_person = generate_person()
                 game.players.append(
@@ -58,11 +59,14 @@ async def command_start(message: types.Message):
             await message.answer(text="Привет я бот-попуск", reply_markup=keyboard)
     else:
         game = get_game_by_chat_id(str(message.chat.id), session)
+
         if game and game.start_time < datetime.datetime.now() and game.end_time is None:
             await message.answer(text="В вышем чате уже идет игра")
         else:
+
             buttons = [
-                types.InlineKeyboardButton(text="Начать игру", callback_data="start_game")
+                types.InlineKeyboardButton(text="Начать игру",
+                                           callback_data=f"start_game!{get_user_by_user_id(str(message.from_user.id), session).id}")
             ]
             keyboard = types.InlineKeyboardMarkup(row_width=1)
             keyboard.add(*buttons)
@@ -80,18 +84,7 @@ async def command_me(message: types.Message):
             types.InlineKeyboardButton(text="Бункер", callback_data="change_person_msg_to_shelter")]
         keyboard = types.InlineKeyboardMarkup(row_width=2)
         keyboard.add(*buttons)
-        res = await bot.send_message(chat_id=player.user_id, text=f"<b>Пол:</b> {player.sex}\n"
-                                     f"<b>Возраст:</b>{player.age}\n"
-                                     f"<b>Профессия:</b> {player.job}\n"
-                                     f"<b>Хобби:</b> {player.hobby}\n"
-                                     f"<b>Фобия:</b> {player.fear}\n"
-                                     f"<b>Багаж:</b> {player.luggage}\n"
-                                     f"<b>Характер:</b> {player.personality}\n"                             
-                                     f"<b>Здоровье:</b> {player.health}\n"
-                                     f"<b>Доп. информация:</b> {player.add_inf}\n"
-                                     f"<b>Знание:</b> {player.knowledge}\n"
-                                     f"<b>Карточка действий:</b> {player.card_1.split('!')[1]}\n"
-                                     f"<b>Карточка условий:</b> {player.card_2}", parse_mode="HTML",
+        res = await bot.send_message(chat_id=player.user_id, text=get_me_text(player), parse_mode="HTML",
                                reply_markup=keyboard)
         player.person_msg_id = res.message_id
         session.add(player)
@@ -105,19 +98,7 @@ async def command_go(message: types.Message):
     game = get_game_by_chat_id(str(message.chat.id), session)
     if get_turn_by_chat_id(str(message.chat.id), session) == 0:
         await bot.send_message(chat_id=str(message.chat.id),
-                               text=f"<b>(АПОКАЛИПСИС)\n{game.disaster}</b>"
-                                    f"\n\n<b>(ИНФОРМАЦИЯ О БУНКЕРЕ)\nПлощадь:</b> {game.size}\n"
-                                    f"<b>Вместимость:</b> "
-                                    f"{game.max_players} чел.\n<b>Время нахождения:</b> {game.time_spent}\n"
-                                    f"<b>Общее состояние:</b> {game.condition}\n<b>Предназначение:</b>"
-                                    f" {game.build_reason}\n"
-                                    f"<b>Расположение:</b> {game.location}\n<b>Помещения:</b>"
-                                    f"\n• {game.room_1}"
-                                    f"\n• {game.room_2}"
-                                    f"\n• {game.room_3}"
-                                    f"\n<b>Доступные ресурсы:</b>"
-                                    f"\n• {game.available_resource_1}"
-                                    f"\n• {game.available_resource_2}", parse_mode="HTML")
+                               text=get_apocalypses_and_bunker_text(game), parse_mode="HTML")
         buttons = [types.InlineKeyboardButton(text="Апокалипсис", callback_data="change_person_msg_to_apocalypse"),
                 types.InlineKeyboardButton(text="Бункер", callback_data="change_person_msg_to_shelter")]
         keyboard = types.InlineKeyboardMarkup(row_width=2)
@@ -125,18 +106,7 @@ async def command_go(message: types.Message):
         for id in get_players_id_by_chat_id(str(message.chat.id), session):
             player = get_player_by_user_id(id, session)
             res = await bot.send_message(chat_id=str(id),
-                                         text=f"<b>Пол:</b> {player.sex}\n"
-                                     f"<b>Возраст:</b>{player.age}\n"
-                                     f"<b>Профессия:</b> {player.job}\n"
-                                     f"<b>Хобби:</b> {player.hobby}\n"
-                                     f"<b>Фобия:</b> {player.fear}\n"
-                                     f"<b>Багаж:</b> {player.luggage}\n"
-                                     f"<b>Характер:</b> {player.personality}\n"    
-                                     f"<b>Здоровье:</b> {player.health}\n"
-                                     f"<b>Доп. информация:</b> {player.add_inf}\n"
-                                     f"<b>Знание:</b> {player.knowledge}\n"
-                                     f"<b>Карточка действий:</b> {player.card_1.split('!')[1]}\n"
-                                     f"<b>Карточка условий:</b> {player.card_2}",
+                                         text=get_me_text(player),
                                          reply_markup=keyboard,
                                          parse_mode="HTML")   # здесь потом измениить карточку за денежку
             player.person_msg_id = res.message_id
@@ -184,12 +154,9 @@ async def command_card(message: types.Message):
 
 async def command_profile(message: types.Message):
     session = postgresDB.get_session()
-    text_=profile_text(get_user_by_user_id(str(message.from_user.id), session))
-    user = get_user_by_user_id(str(message.from_user.id), session)
-    settings_ = user.settings
-    print(settings_.exchange_add)
-    #await bot.send_message(chat_id=message.from_user.id,
-    #                       text=text_,
-    #                       parse_mode="HTML")
+    text_ = get_profile_text(get_user_by_user_id(str(message.from_user.id), session))
+    await bot.send_message(chat_id=message.from_user.id,
+                           text=text_,
+                           parse_mode="HTML")
 
     session.close()

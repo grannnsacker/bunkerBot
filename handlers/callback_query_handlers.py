@@ -4,6 +4,8 @@ from aiogram.utils.exceptions import MessageNotModified, MessageToEditNotFound
 from controlers.game import create_game, get_alive_players_id_by_chat_id, get_message_id_by_chat_id, \
     get_need_for_rekick_players_id_by_chat_id
 from controlers.player import get_player_by_user_id, get_count_of_open_params, get_game_by_person_msg_id
+from controlers.setting import create_based_setting
+from controlers.user import get_user_by_user_id
 from create_bot import bot
 from generation.generate import create_shelter, create_disaster, generate_person
 from store import postgresDB
@@ -20,6 +22,7 @@ from create_bot import bot
 from generation.generate import generate_person, create_disaster
 from models import Player
 from store import postgresDB
+from text.text_returner import get_me_text, get_bunker_text
 
 
 async def start_game(callback: types.CallbackQuery):
@@ -28,13 +31,16 @@ async def start_game(callback: types.CallbackQuery):
 
     if game is None or game.end_time:
         shelter = create_shelter()
+        _, host_id = map(str, callback.data.split('!'))
         create_game(chat_id=str(callback.message.chat.id), start_message_id=callback.message.message_id,
                     size=shelter["size"], time_spent=shelter["time_spent"], disaster=create_disaster(),
                     condition=shelter["condition"], build_reason=shelter["build_reason"], location=shelter["location"],
                     room_1=shelter["room_1"], room_2=shelter["room_2"], room_3=shelter["room_3"],
                     available_resource_1=shelter["available_resource_1"],
-                    available_resource_2=shelter["available_resource_2"], session=session)
+                    available_resource_2=shelter["available_resource_2"], host_id=host_id,
+                    session=session)
 
+        # если в игре есть хотя бы один польователь
         buttons = [
             types.InlineKeyboardButton(text="Присоединиться",
                                        url=f"https://t.me/SllizBot?start={callback.message.chat.id}")
@@ -42,7 +48,7 @@ async def start_game(callback: types.CallbackQuery):
         keyboard = types.InlineKeyboardMarkup(row_width=1)
         keyboard.add(*buttons)
         await callback.message.answer(text="Нажмите кнопку, чтобы участвовать.", reply_markup=keyboard)
-        await callback.answer()
+    await callback.answer()
     session.commit()
     session.close()
 
@@ -95,7 +101,6 @@ async def open_callback_handler(callback: types.CallbackQuery):
         player = get_player_by_user_id(id, session)
         cnt += get_count_of_open_params(player.user_id, session)
     turn = get_game_by_chat_id(chat_id, session).turn
-    print(cnt, turn, len(alive_players))
     if cnt == len(alive_players) * turn:
         session.close()
         await discussion(chat_id)
@@ -129,10 +134,8 @@ async def kick_callback_handler(callback: types.CallbackQuery):
 
 
 async def discussion(chat_id: str, array=None):
-    #session = postgresDB.get_session()
     await bot.send_message(chat_id=chat_id, text="<b>Время обсуждений!</b>", parse_mode="HTML")
     #await asyncio.sleep()
-    #session.close()
     await vote(chat_id, array)
 
 
@@ -199,8 +202,7 @@ async def kick(chat_id: str):
         session.add(player)
         session.commit()
         game = get_game_by_chat_id(chat_id, session)
-        if len(alive_players) - len(kick_users_id) > game.max_players_in_shelter:
-
+        if len(alive_players) - len(kick_users_id) > get_user_by_user_id(game.host_id, session).settings.max_players:
             session.close()
             await round(chat_id)
         else:
@@ -342,17 +344,7 @@ async def change_person_msg_to_shelter(callback: types.CallbackQuery):
         keyboard.add(*buttons)
         try:
             await bot.edit_message_text(message_id=player.person_msg_id,
-                                text=f"<b>Площадь:</b> {player.game.size}\n<b>Вместимость:</b> "
-                                     f"{player.game.max_players} чел.\n<b>Время нахождения:</b> {player.game.time_spent}\n"
-                                     f"<b>Общее состояние:</b> {player.game.condition}\n<b>Предназначение:</b>"
-                                     f" {player.game.build_reason}\n"
-                                     f"<b>Расположение:</b> {player.game.location}\n<b>Помещения:</b>"
-                                     f"\n• {player.game.room_1}"
-                                     f"\n• {player.game.room_2}"
-                                     f"\n• {player.game.room_3}"
-                                     f"\n<b>Доступные ресурсы:</b>"
-                                     f"\n• {player.game.available_resource_1}"
-                                     f"\n• {player.game.available_resource_2}", chat_id=callback.from_user.id,
+                                text=get_bunker_text(player.game), chat_id=callback.from_user.id,
                                 reply_markup=keyboard, parse_mode="HTML")
             session.commit()
         except aiogram.utils.exceptions.MessageToEditNotFound:
@@ -379,17 +371,7 @@ async def change_person_msg_to_me(callback: types.CallbackQuery):
         keyboard.add(*buttons)
         try:
             await bot.edit_message_text(message_id=player.person_msg_id,
-                                text=f"<b>Пол:</b> {player.sex}\n"
-                                     f"<b>Возраст:</b>{player.age}\n"
-                                     f"<b>Профессия:</b> {player.job}\n"
-                                     f"<b>Хобби:</b> {player.hobby}\n"
-                                     f"<b>Фобия:</b> {player.fear}\n"
-                                     f"<b>Багаж:</b> {player.luggage}\n"
-                                     f"<b>Здоровье:</b> {player.health}\n"
-                                     f"<b>Доп. информация:</b> {player.add_inf}\n"
-                                     f"<b>Знание:</b> {player.knowledge}\n"
-                                     f"<b>Карточка действий:</b> {player.card_1.split('!')[1]}\n"
-                                     f"<b>Карточка условий:</b> {player.card_2}",
+                                text=get_me_text(player),
                                 chat_id=callback.from_user.id, reply_markup=keyboard, parse_mode="HTML")
             session.commit()
         except aiogram.utils.exceptions.MessageToEditNotFound:
@@ -435,14 +417,15 @@ async def card_action_handler(card_type: str, user_id: str, to_user_id=None, sec
             player = get_player_by_user_id(i, session)
             if player != cur_player:
                 buttons.append(types.InlineKeyboardButton(text=player.username,
-                                                      callback_data=f"card_selected_player_{card_type}!{player.user_id}"))
+                                                          callback_data=f"card_selected_player_{card_type}!{player.user_id}"))
         keyboard = types.InlineKeyboardMarkup(row_width=2)
         keyboard.add(*buttons)
         tmp = {"health": "здоровьем", "job": "профессией", "personality": "характером", "hobby": "хобби",
                "luggage": "багажом", "inf": "доп. информацией", "fear": "фобией", "knowledge": "знанием"}
         param = tmp[card_type.split('_')[-1]]
-        res = await bot.send_message(chat_id=user_id, text=f"Выберете игрока, с которым хотите обменяться <b>{param}</b>",
-                               parse_mode="HTML", reply_markup=keyboard)
+        res = await bot.send_message(chat_id=user_id,
+                                     text=f"Выберете игрока, с которым хотите обменяться <b>{param}</b>",
+                                     parse_mode="HTML", reply_markup=keyboard)
         cur_player.card_msg_id = res.message_id
         session.add(cur_player)
     elif "open_card" in card_type:
@@ -458,18 +441,18 @@ async def card_action_handler(card_type: str, user_id: str, to_user_id=None, sec
                     if not player.is_health_open:
                         if second:
                             buttons.append(types.InlineKeyboardButton(text=player.username,
-                                                          callback_data=f"{card_type}!{player.user_id}"))
+                                                                      callback_data=f"{card_type}!{player.user_id}"))
                         else:
                             buttons.append(types.InlineKeyboardButton(text=player.username,
                                                                       callback_data=f"card_selected_player_{card_type}!{player.user_id}"))
                 elif "open_card_fear" in card_type:
                     if not player.is_fear_open:
                         buttons.append(types.InlineKeyboardButton(text=player.username,
-                                                          callback_data=f"card_selected_player_{card_type}!{player.user_id}"))
+                                                                  callback_data=f"card_selected_player_{card_type}!{player.user_id}"))
                 elif "open_card_hobby" in card_type:
                     if not player.is_hobby_open:
                         buttons.append(types.InlineKeyboardButton(text=player.username,
-                                                          callback_data=f"card_selected_player_{card_type}!{player.user_id}"))
+                                                                  callback_data=f"card_selected_player_{card_type}!{player.user_id}"))
                 elif "open_card_personality" in card_type:
                     if not player.is_personality_open:
                         if second:
@@ -481,27 +464,27 @@ async def card_action_handler(card_type: str, user_id: str, to_user_id=None, sec
                 elif "open_card_add_inf" in card_type:
                     if not player.is_add_inf_open:
                         buttons.append(types.InlineKeyboardButton(text=player.username,
-                                                          callback_data=f"card_selected_player_{card_type}!{player.user_id}"))
+                                                                  callback_data=f"card_selected_player_{card_type}!{player.user_id}"))
                 elif "open_card_knowledge" in card_type:
                     if not player.is_knowledge_open:
                         buttons.append(types.InlineKeyboardButton(text=player.username,
-                                                          callback_data=f"card_selected_player_{card_type}!{player.user_id}"))
+                                                                  callback_data=f"card_selected_player_{card_type}!{player.user_id}"))
                 elif "open_card_luggage" in card_type:
                     if not player.is_luggage_open:
                         buttons.append(types.InlineKeyboardButton(text=player.username,
-                                                          callback_data=f"card_selected_player_{card_type}!{player.user_id}"))
+                                                                  callback_data=f"card_selected_player_{card_type}!{player.user_id}"))
         if len(buttons) == 0:
             tmp = {"health": "здоровье", "job": "профессия", "personality": "характер", "hobby": "хобби",
                    "luggage": "багаж", "inf": "доп. информация", "fear": "фобия", "knowledge": "знание"}
             param = card_type.split('!')[0].split('_')[-1]
             button = types.InlineKeyboardButton(text="Закрыть",
-                                       callback_data=f"close_card_message!{cur_player.user_id}")
+                                                callback_data=f"close_card_message!{cur_player.user_id}")
             keyboard = types.InlineKeyboardMarkup(row_width=2)
             keyboard.add(button)
             res = await bot.send_message(chat_id=cur_player.user_id,
-                                   text=f"Упс.. У всех игроков <b>уже вскрыт</b> этот параметр: <b>{tmp[param]}</b>",
-                                   parse_mode="HTML",
-                                   reply_markup=keyboard)
+                                         text=f"Упс.. У всех игроков <b>уже вскрыт</b> этот параметр: <b>{tmp[param]}</b>",
+                                         parse_mode="HTML",
+                                         reply_markup=keyboard)
             cur_player.card_msg_id = res.message_id
 
         else:
@@ -511,18 +494,17 @@ async def card_action_handler(card_type: str, user_id: str, to_user_id=None, sec
                    "luggage": "багаж", "inf": "доп. информацию", "fear": "фобию", "knowledge": "знание"}
             param = tmp[card_type.split('_')[-1]]
             if second:
-                text_ = f"Игрок {get_player_by_user_id(to_user_id, session).username} только что вскрыл <b>{param}</b>. Вам необходимо ёще раз выбрать игрока, которому необходимо вскрыть <b>{param}</b>"
+                text_ = f"Игрок {get_player_by_user_id(to_user_id, session).username} только что вскрыл <b>{param}</b>." \
+                        f" Вам необходимо ёще раз выбрать игрока, которому необходимо вскрыть <b>{param}</b>"
             else:
                 text_ = f"Выберете игрока, которому необходимо вскрыть <b>{param}</b>"
             res = await bot.send_message(chat_id=cur_player.user_id,
-                                     text=text_,
-                                     parse_mode="HTML",
-                                    reply_markup=keyboard)
+                                         text=text_,
+                                         parse_mode="HTML",
+                                         reply_markup=keyboard)
             cur_player.card_msg_id = res.message_id
         session.add(cur_player)
     session.commit()
-        # выбираю своб характеристику
-        # выбтраю игрока
     session.close()
 
 
@@ -626,33 +608,11 @@ async def card_selected_player_handler(callback: types.CallbackQuery):
         keyboard.add(*buttons)
 
         await bot.edit_message_text(message_id=cur_player.person_msg_id,
-                                    text=f"<b>Пол:</b> {cur_player.sex}\n"
-                                         f"<b>Возраст: </b>{cur_player.age}\n"
-                                         f"<b>Профессия:</b> {cur_player.job}\n"
-                                         f"<b>Хобби:</b> {cur_player.hobby}\n"
-                                         f"<b>Фобия:</b> {cur_player.fear}\n"
-                                         f"<b>Багаж:</b> {cur_player.luggage}\n"
-                                         f"<b>Характер:</b> {cur_player.personality}\n"
-                                         f"<b>Здоровье:</b> {cur_player.health}\n"
-                                         f"<b>Доп. информация:</b> {cur_player.add_inf}\n"
-                                         f"<b>Знание:</b> {cur_player.knowledge}\n"
-                                         f"<b>Карточка действий:</b> {cur_player.card_1.split('!')[1]}\n"
-                                         f"<b>Карточка условий:</b> {cur_player.card_2}",
+                                    text=get_me_text(cur_player),
                                     chat_id=cur_player.user_id,
                                     reply_markup=keyboard, parse_mode="HTML")
         await bot.edit_message_text(message_id=to_player.person_msg_id,
-                                    text=f"<b>Пол:</b> {to_player.sex}\n"
-                                     f"<b>Возраст: </b>{to_player.age}\n"
-                                     f"<b>Профессия:</b> {to_player.job}\n"
-                                     f"<b>Хобби:</b> {to_player.hobby}\n"
-                                     f"<b>Фобия:</b> {to_player.fear}\n"
-                                     f"<b>Багаж:</b> {to_player.luggage}\n"
-                                     f"<b>Характер:</b> {to_player.personality}\n"    
-                                     f"<b>Здоровье:</b> {to_player.health}\n"
-                                     f"<b>Доп. информация:</b> {to_player.add_inf}\n"
-                                     f"<b>Знание:</b> {to_player.knowledge}\n"
-                                     f"<b>Карточка действий:</b> {to_player.card_1.split('!')[1]}\n"
-                                     f"<b>Карточка условий:</b> {to_player.card_2}",
+                                    text=get_me_text(to_player),
                                     chat_id=to_player.user_id,
                                     reply_markup=keyboard, parse_mode="HTML")
         await bot.send_message(chat_id=cur_player.game.chat_id,

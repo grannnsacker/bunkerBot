@@ -9,12 +9,12 @@ from store import postgresDB
 
 def create_game(chat_id: str, start_message_id: str, size: str, time_spent:str, disaster:str,
                 condition: str, build_reason: str, location: str, room_1: str, room_2: str,
-                room_3: str, available_resource_1: str, available_resource_2: str, session: Session):
+                room_3: str, available_resource_1: str, available_resource_2: str, host_id: str, session: Session):
     game = Game(chat_id=chat_id, start_message_id=start_message_id, start_time=datetime.datetime.now(),
                 size=size, time_spent=time_spent, disaster=disaster, condition=condition,
                 build_reason=build_reason, location=location, room_1=room_1, room_2=room_2,
                 room_3=room_3, available_resource_1=available_resource_1,
-                available_resource_2=available_resource_2)
+                available_resource_2=available_resource_2, host_id=host_id)
     session.add(game)
 
 

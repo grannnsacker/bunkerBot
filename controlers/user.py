@@ -12,5 +12,10 @@ def register_user(username: str, user_id: str, session: Session):
 
 
 def get_user_by_user_id(user_id: str, session: Session):
-    player = session.query(User).filter_by(user_id=user_id).order_by(User.id.desc()).first()
-    return player
+    user = session.query(User).filter_by(user_id=user_id).order_by(User.id.desc()).first()
+    return user
+
+
+def get_user_by_id(id: int, session: Session):
+    user = session.query(User).filter_by(id=id).order_by(User.id.desc()).first()
+    return user
