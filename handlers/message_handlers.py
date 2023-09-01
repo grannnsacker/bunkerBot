@@ -63,7 +63,8 @@ async def command_start(message: types.Message):
         if game and game.start_time < datetime.datetime.now() and game.end_time is None:
             await message.answer(text="В вышем чате уже идет игра")
         else:
-
+            if not await rights_check(message.chat.id):
+                return
             buttons = [
                 types.InlineKeyboardButton(text="Начать игру",
                                            callback_data=f"start_game!{get_user_by_user_id(str(message.from_user.id), session).id}")
@@ -160,3 +161,23 @@ async def command_profile(message: types.Message):
                            parse_mode="HTML")
 
     session.close()
+
+
+async def rights_check(chat_id):
+    text_ = await bot.get_chat_member(chat_id, bot.id)
+    if bool(text_.values["can_delete_messages"]) and bool(text_.values["can_invite_users"]):
+        return True
+    send_text = "<b>Для корректной работы мне нужно еще немного прав 🥺</b>:"
+    if not bool(text_.values["can_delete_messages"]):
+        send_text += "\n• Удалять сообщения"
+    if not bool(text_.values["can_invite_users"]):
+        send_text += "\n• Приглашать пользователей с помощью ссылок "
+    await bot.send_message(chat_id=chat_id, text=send_text,
+                     parse_mode='HTML')
+    return False
+
+
+async def rights(message: types.Message):
+    text_ = await bot.get_chat_member(message.chat.id, bot.id)
+    #can_delete_messages, can_pin_messages, can_invite_users
+    print(text_.values)

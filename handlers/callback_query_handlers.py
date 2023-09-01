@@ -11,7 +11,6 @@ from generation.generate import create_shelter, create_disaster, generate_person
 from store import postgresDB
 import asyncio
 import datetime
-
 from aiogram import types
 from sqlalchemy.orm import Session
 
@@ -39,7 +38,12 @@ async def start_game(callback: types.CallbackQuery):
                     available_resource_1=shelter["available_resource_1"],
                     available_resource_2=shelter["available_resource_2"], host_id=host_id,
                     session=session)
-
+        session.commit()
+        expire_date = datetime.datetime.now() + datetime.timedelta(days=1)
+        link = await bot.create_chat_invite_link(callback.message.chat.id, expire_date.timestamp, 1)
+        game = get_game_by_chat_id(str(callback.message.chat.id), session)
+        game.invite_link_to_chat = link.invite_link
+        session.add(game)
         # если в игре есть хотя бы один польователь
         buttons = [
             types.InlineKeyboardButton(text="Присоединиться",
@@ -141,7 +145,10 @@ async def discussion(chat_id: str, array=None):
 
 async def vote(chat_id: str, re_vote_people=None):
     session = postgresDB.get_session()
-    await bot.send_message(chat_id=chat_id, text="<b>Время голосования!</b>", parse_mode="HTML")
+    button = types.InlineKeyboardButton(text="Голосовать", url="https://t.me/SllizBot")
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(button)
+    await bot.send_message(chat_id=chat_id, text="<b>Время голосования!</b>", parse_mode="HTML", reply_markup=keyboard)
     if re_vote_people is None:
         kickable = get_alive_players_id_by_chat_id(chat_id, session)
     else:
@@ -252,13 +259,16 @@ async def round(chat_id: str):
     session = postgresDB.get_session()
     game = get_game_by_chat_id(chat_id, session)
     game.turn += 1
+    button = types.InlineKeyboardButton(text="Вскрыть", url="https://t.me/SllizBot")
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(button)
     if game.turn == 1:
         text_1 = "Каждому игроку необходимо вскрыть любой оставшийся параметр, <b>профессия вскроется автоматически</b>"
         text_2 = "Нажмите кнопку с нужной характеристикой, которая <b>вскроится вместе с вашей профессией</b>"
     else:
         text_1 = "Каждому игроку необходимо вскрыть <b>любой оставшийся параметр</b>"
         text_2 = "Нажмите кнопку с <b>нужной характеристикой</b>"
-    await bot.send_message(chat_id=chat_id, text=text_1, parse_mode="HTML")
+    await bot.send_message(chat_id=chat_id, text=text_1, reply_markup=keyboard, parse_mode="HTML")
     for id in get_alive_players_id_by_chat_id(chat_id, session):
         buttons = await create_buttons_to_open_param(id, session)
         keyboard = types.InlineKeyboardMarkup(row_width=2)
@@ -313,7 +323,8 @@ async def change_person_msg_to_apocalypse(callback: types.CallbackQuery):
     if person_msg_game_ and person_msg_game_.end_time is None:
 
         buttons = [types.InlineKeyboardButton(text="Бункер", callback_data="change_person_msg_to_shelter"),
-                   types.InlineKeyboardButton(text="Характеристики", callback_data="change_person_msg_to_me")]
+                   types.InlineKeyboardButton(text="Характеристики", callback_data="change_person_msg_to_me"),
+                   types.InlineKeyboardButton(text="Перейти в чат", url=f'{player.game.invite_link_to_chat}')]
         keyboard = types.InlineKeyboardMarkup(row_width=2)
         keyboard.add(*buttons)
         try:
@@ -339,7 +350,8 @@ async def change_person_msg_to_shelter(callback: types.CallbackQuery):
     person_msg_game_ = get_game_by_person_msg_id(str(player.person_msg_id), session)
     if person_msg_game_ and person_msg_game_.end_time is None:
         buttons = [types.InlineKeyboardButton(text="Характеристики", callback_data="change_person_msg_to_me"),
-                   types.InlineKeyboardButton(text="Апокалипсис", callback_data="change_person_msg_to_apocalypse")]
+                   types.InlineKeyboardButton(text="Апокалипсис", callback_data="change_person_msg_to_apocalypse"),
+                   types.InlineKeyboardButton(text="Перейти в чат", url=f'{player.game.invite_link_to_chat}')]
         keyboard = types.InlineKeyboardMarkup(row_width=2)
         keyboard.add(*buttons)
         try:
@@ -366,7 +378,8 @@ async def change_person_msg_to_me(callback: types.CallbackQuery):
     person_msg_game_ = get_game_by_person_msg_id(str(player.person_msg_id), session)
     if person_msg_game_ and person_msg_game_.end_time is None:  # проверка что чел в игре
         buttons = [types.InlineKeyboardButton(text="Бункер", callback_data="change_person_msg_to_shelter"),
-                   types.InlineKeyboardButton(text="Апокалипсис", callback_data="change_person_msg_to_apocalypse")]
+                   types.InlineKeyboardButton(text="Апокалипсис", callback_data="change_person_msg_to_apocalypse"),
+                   types.InlineKeyboardButton(text="Перейти в чат", url=f'{player.game.invite_link_to_chat}')]
         keyboard = types.InlineKeyboardMarkup(row_width=2)
         keyboard.add(*buttons)
         try:

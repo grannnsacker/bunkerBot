@@ -3,7 +3,8 @@ from aiogram.dispatcher import Dispatcher
 from handlers.callback_query_handlers import start_game, open_callback_handler, kick_callback_handler, \
     change_person_msg_to_apocalypse, change_person_msg_to_shelter, change_person_msg_to_me, activate_card_handler, \
     close_card_panel_handler, card_selected_player_handler, close_card_message_handler
-from handlers.message_handlers import command_start, command_go, cancel_game, command_me, command_card, command_profile
+from handlers.message_handlers import command_start, command_go, cancel_game, command_me, command_card, command_profile, \
+    rights
 from handlers.webApp import web_app_, answer
 
 
@@ -16,6 +17,7 @@ def register_handlers_client(dp: Dispatcher):
     dp.register_message_handler(command_me, commands=['me'])  # отработка вывода
     dp.register_message_handler(web_app_, commands=['web'])  # отработка вывода
     dp.register_message_handler(command_profile, commands=['profile'])  # отработка вывода
+    dp.register_message_handler(rights, commands=['rights'])  # отработка вывода
     dp.register_callback_query_handler(start_game, lambda x: "start_game" in x.data)
     dp.register_callback_query_handler(close_card_message_handler, lambda x: "close_card_message" in x.data)
     # отработка закрытия панель карты, когда нечего вскрыт
