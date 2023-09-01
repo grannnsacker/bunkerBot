@@ -68,4 +68,5 @@ def get_bunker_text(game):
 
 def get_apocalypses_text(game):
     return f'''
+    
     '''
