@@ -82,7 +82,8 @@ async def command_me(message: types.Message):
     player = get_player_by_user_id(str(message.from_user.id), session)
     if player.game and player.game.start_time < datetime.datetime.now() and player.game.end_time is None:
         buttons = [types.InlineKeyboardButton(text="Апокалипсис", callback_data="change_person_msg_to_apocalypse"),
-            types.InlineKeyboardButton(text="Бункер", callback_data="change_person_msg_to_shelter")]
+            types.InlineKeyboardButton(text="Бункер", callback_data="change_person_msg_to_shelter"),
+                   types.InlineKeyboardButton(text="Перейти в чат", url=f'{player.game.invite_link_to_chat}')]
         keyboard = types.InlineKeyboardMarkup(row_width=2)
         keyboard.add(*buttons)
         res = await bot.send_message(chat_id=player.user_id, text=get_me_text(player), parse_mode="HTML",
@@ -98,10 +99,14 @@ async def command_go(message: types.Message):
     session = postgresDB.get_session()
     game = get_game_by_chat_id(str(message.chat.id), session)
     if get_turn_by_chat_id(str(message.chat.id), session) == 0:
-        await bot.send_message(chat_id=str(message.chat.id),
+        res = await bot.send_message(chat_id=str(message.chat.id),
                                text=get_apocalypses_and_bunker_text(game), parse_mode="HTML")
+        game.invite_link_to_chat = res.url
+        session.add(game)
+        session.commit()
         buttons = [types.InlineKeyboardButton(text="Апокалипсис", callback_data="change_person_msg_to_apocalypse"),
-                types.InlineKeyboardButton(text="Бункер", callback_data="change_person_msg_to_shelter")]
+                types.InlineKeyboardButton(text="Бункер", callback_data="change_person_msg_to_shelter"),
+                   types.InlineKeyboardButton(text="Перейти в чат", url=f'{game.invite_link_to_chat}')]
         keyboard = types.InlineKeyboardMarkup(row_width=2)
         keyboard.add(*buttons)
         for id in get_players_id_by_chat_id(str(message.chat.id), session):
@@ -170,14 +175,12 @@ async def rights_check(chat_id):
     send_text = "<b>Для корректной работы мне нужно еще немного прав 🥺</b>:"
     if not bool(text_.values["can_delete_messages"]):
         send_text += "\n• Удалять сообщения"
-    if not bool(text_.values["can_invite_users"]):
-        send_text += "\n• Приглашать пользователей с помощью ссылок "
     await bot.send_message(chat_id=chat_id, text=send_text,
                      parse_mode='HTML')
     return False
 
 
 async def rights(message: types.Message):
-    text_ = await bot.get_chat_member(message.chat.id, bot.id)
-    #can_delete_messages, can_pin_messages, can_invite_users
-    print(text_.values)
+    print(message.url)
+
+    # await bot.send_message(chat_id=message.chat.id, text=)

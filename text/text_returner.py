@@ -14,7 +14,7 @@ def get_profile_text(user):
 def get_me_text(player):
     return f'''
 <b>Пол:</b> {player.sex}
-<b>Возраст:</b>{player.age}
+<b>Возраст:</b> {player.age}
 <b>Профессия:</b> {player.job}
 <b>Хобби:</b> {player.hobby}
 <b>Фобия:</b> {player.fear}

@@ -16,6 +16,7 @@ class Player(Base):
     card_msg_id = Column(String)  # field to save card message id, which will be delete
     voices_to_kick = Column(Integer, default=0)
     is_vote = Column(Boolean, default=False)
+    is_open_param = Column(Boolean, default=False)
     is_dead = Column(Boolean, default=False)
     is_need_to_be_in_rekick_vote = Column(Boolean, default=False)
     job = Column(String)

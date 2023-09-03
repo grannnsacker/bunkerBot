@@ -38,12 +38,6 @@ async def start_game(callback: types.CallbackQuery):
                     available_resource_1=shelter["available_resource_1"],
                     available_resource_2=shelter["available_resource_2"], host_id=host_id,
                     session=session)
-        session.commit()
-        expire_date = datetime.datetime.now() + datetime.timedelta(days=1)
-        link = await bot.create_chat_invite_link(callback.message.chat.id, expire_date.timestamp, 1)
-        game = get_game_by_chat_id(str(callback.message.chat.id), session)
-        game.invite_link_to_chat = link.invite_link
-        session.add(game)
         # если в игре есть хотя бы один польователь
         buttons = [
             types.InlineKeyboardButton(text="Присоединиться",
@@ -94,6 +88,7 @@ async def open_callback_handler(callback: types.CallbackQuery):
         open_text = f"Игрок <b>{player.username}</b> вскрыл <b>профессию: {player.job}</b>\n" + open_text
     await bot.send_message(chat_id=chat_id,
                            text=open_text, parse_mode="HTML")
+    player.is_open_param = True
     session.add(player)
     session.commit()
     session.close()
@@ -103,9 +98,8 @@ async def open_callback_handler(callback: types.CallbackQuery):
     cnt = 0
     for id in alive_players:
         player = get_player_by_user_id(id, session)
-        cnt += get_count_of_open_params(player.user_id, session)
-    turn = get_game_by_chat_id(chat_id, session).turn
-    if cnt == len(alive_players) * turn:
+        cnt += player.is_open_param
+    if cnt == len(alive_players):
         session.close()
         await discussion(chat_id)
     await callback.answer()
@@ -115,11 +109,15 @@ async def open_callback_handler(callback: types.CallbackQuery):
 async def kick_callback_handler(callback: types.CallbackQuery):
     session = postgresDB.get_session()
     player = get_player_by_user_id(str(callback.from_user.id), session)
+    player.is_vote = True
+    session.add(player)
+    session.commit()
     await bot.delete_message(chat_id=player.user_id, message_id=player.msg_id)
     player.msg_id = None
     open_param = callback.data.split('_')[1]
     player = get_player_by_user_id(open_param, session)
     player.voices_to_kick += 1
+
     session.add(player)
     session.commit()
 
@@ -129,7 +127,7 @@ async def kick_callback_handler(callback: types.CallbackQuery):
 
     for id in alive_players:
         player = get_player_by_user_id(id, session)
-        cnt += player.voices_to_kick
+        cnt += player.is_vote
     if cnt == len(alive_players):
         session.close()
         await kick(chat_id)
@@ -148,7 +146,11 @@ async def vote(chat_id: str, re_vote_people=None):
     button = types.InlineKeyboardButton(text="Голосовать", url="https://t.me/SllizBot")
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(button)
-    await bot.send_message(chat_id=chat_id, text="<b>Время голосования!</b>", parse_mode="HTML", reply_markup=keyboard)
+    res = await bot.send_message(chat_id=chat_id, text="<b>Время голосования!</b>", parse_mode="HTML", reply_markup=keyboard)
+    game = get_game_by_chat_id(chat_id, session)
+    game.invite_link_to_chat = res.url
+    session.add(game)
+    session.commit()
     if re_vote_people is None:
         kickable = get_alive_players_id_by_chat_id(chat_id, session)
     else:
@@ -180,6 +182,16 @@ def create_buttons_to_voting(alive_players: list, current_player_user_id: str, s
     return buttons
 
 
+async def like_or_dislike_handler(callback: types.CallbackQuery):
+    name, chat_id = callback.data.split('!')
+    game = get_game_by_chat_id(chat_id,)
+    if name.split('_')[1] == 'like':
+
+        await bot
+    else:
+        pass
+
+
 async def kick(chat_id: str):
     session = postgresDB.get_session()
     alive_players = get_alive_players_id_by_chat_id(chat_id, session)
@@ -202,13 +214,23 @@ async def kick(chat_id: str):
         session.close()
         await re_kick(chat_id, kick_users_id)
     else:
-        username = get_player_by_user_id(kick_users_id[0], session).username
+        game = get_game_by_chat_id(chat_id, session)
+        player = get_player_by_user_id(kick_users_id[0], session)
+        username = player.username
+        #buttons = [types.InlineKeyboardButton(text="👍",callback_data=f'press_like!{chat_id}'),
+        #           types.InlineKeyboardButton(text="👎", callback_data=f'press_dislike!{chat_id}')]
+        #keyboard = types.InlineKeyboardMarkup(row_width=2)
+        #keyboard.add(*buttons)
+        #res = await bot.send_message(chat_id=chat_id, text=f"Уцелевшии решили выгнать <b>{username}</b> из убежища."
+        #                                                   f" <b>Вы действительно этого хотите?</b>")
+        #game.final_vote_msg_id = res.message_id
+        #session.add(game)
+        #session.commit()
         await bot.send_message(chat_id=chat_id, text=f"Путем голосования выгнали: {username}")
         player = get_player_by_user_id(kick_users_id[0], session)
         player.is_dead = True
         session.add(player)
         session.commit()
-        game = get_game_by_chat_id(chat_id, session)
         if len(alive_players) - len(kick_users_id) > get_user_by_user_id(game.host_id, session).settings.max_players:
             session.close()
             await round(chat_id)
@@ -219,6 +241,8 @@ async def kick(chat_id: str):
     for id in alive_players:
         player = get_player_by_user_id(id, session)
         player.voices_to_kick = 0
+        player.is_need_to_be_in_rekick_vote = False
+        player.is_vote = False
         session.add(player)
         session.commit()
     session.close()

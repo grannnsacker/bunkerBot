@@ -13,5 +13,9 @@ class Setting(Base):
     privileges_is_available = Column(Boolean, default=True)
     max_players = Column(Integer, default=10)
 
+
+    '''game settings'''
+    add_skip_button_in_kick_vote = Column(Boolean, default=True)
     '''cards'''
     exchange_add = Column(Boolean, default=True)
+
