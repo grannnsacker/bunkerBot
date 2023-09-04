@@ -180,7 +180,7 @@ async def command_profile(message: types.Message):
 
 async def rights_check(chat_id):
     text_ = await bot.get_chat_member(chat_id, bot.id)
-    if bool(text_.values["can_delete_messages"]) and bool(text_.values["can_invite_users"]):
+    if bool(text_.values["can_delete_messages"]):
         return True
     send_text = "<b>Для корректной работы мне нужно еще немного прав 🥺</b>:"
     if not bool(text_.values["can_delete_messages"]):

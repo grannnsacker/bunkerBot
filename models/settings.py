@@ -9,13 +9,17 @@ class Setting(Base):
     __tablename__ = "settings"
     id = Column(Integer, primary_key=True)
     chat = relationship("Chat", back_populates="settings")
+
+    '''game settings'''
     max_players_in_shelter = Column(Integer, default=2)  # max_pla // 2 # how many people
     privileges_is_available = Column(Boolean, default=True)
     max_players = Column(Integer, default=10)
+    add_skip_btn_in_vote = Column(Boolean, default=False)
 
-
-    '''game settings'''
     add_skip_button_in_kick_vote = Column(Boolean, default=True)
+    silence_for_kicked = Column(Boolean, default=False)
+    silence_for_unplayed = Column(Boolean, default=False)
+    silence_during_voice = Column(Boolean, default=False)
     '''cards'''
     exchange_add = Column(Boolean, default=True)
 

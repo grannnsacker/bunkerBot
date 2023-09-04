@@ -18,6 +18,7 @@ class Game(Base):
     final_vote_msg_id = Column(String)
     likes = Column(Integer, default=0)
     dislikes = Column(Integer, default=0)
+    voices_to_skip = Column(Boolean, default=0)
     '''disaster'''
     disaster = Column(String)
 
