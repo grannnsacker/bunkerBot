@@ -7,8 +7,7 @@ from controlers.game import get_game_by_chat_id, \
     get_players_usernames_by_chat_id, get_message_id_by_chat_id, get_players_id_by_chat_id, get_turn_by_chat_id, \
     get_alive_players_id_by_chat_id
 from controlers.player import get_player_by_user_id
-from controlers.setting import get_settings_by_id
-from controlers.user import get_user_by_user_id, register_user, get_user_by_id
+from controlers.user import get_user_by_user_id, register_user
 from create_bot import bot
 from generation.generate import generate_person
 from models import Player
