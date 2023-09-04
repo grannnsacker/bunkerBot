@@ -1,12 +1,11 @@
 import aiogram.utils.exceptions
 from aiogram.utils.exceptions import MessageNotModified, MessageToEditNotFound
 
+from controlers.chat import get_chat_by_telegram_id
 from controlers.game import create_game, get_alive_players_id_by_chat_id, get_message_id_by_chat_id, \
     get_need_for_rekick_players_id_by_chat_id
-from controlers.player import get_player_by_user_id, get_count_of_open_params, get_game_by_person_msg_id
-from controlers.setting import create_based_setting
+from controlers.player import get_game_by_person_msg_id
 from controlers.user import get_user_by_user_id
-from create_bot import bot
 from generation.generate import create_shelter, create_disaster, generate_person
 from store import postgresDB
 import asyncio
@@ -27,16 +26,14 @@ from text.text_returner import get_me_text, get_bunker_text
 async def start_game(callback: types.CallbackQuery):
     session = postgresDB.get_session()
     game = get_game_by_chat_id(str(callback.message.chat.id), session)
-
     if game is None or game.end_time:
         shelter = create_shelter()
-        _, host_id = map(str, callback.data.split('!'))
         create_game(chat_id=str(callback.message.chat.id), start_message_id=callback.message.message_id,
                     size=shelter["size"], time_spent=shelter["time_spent"], disaster=create_disaster(),
                     condition=shelter["condition"], build_reason=shelter["build_reason"], location=shelter["location"],
                     room_1=shelter["room_1"], room_2=shelter["room_2"], room_3=shelter["room_3"],
                     available_resource_1=shelter["available_resource_1"],
-                    available_resource_2=shelter["available_resource_2"], host_id=host_id,
+                    available_resource_2=shelter["available_resource_2"],
                     session=session)
         # если в игре есть хотя бы один польователь
         buttons = [
@@ -57,7 +54,13 @@ async def open_callback_handler(callback: types.CallbackQuery):
     open_text = ""
     user_id = callback.message.chat.id
     player = get_player_by_user_id(str(user_id), session)
-    await bot.delete_message(chat_id=user_id, message_id=player.msg_id)
+    try:
+        await bot.delete_message(chat_id=user_id, message_id=player.msg_id)
+    except aiogram.utils.exceptions.MessageIdentifierNotSpecified:
+        # игрок нажал на старое сообщение
+        await callback.answer()
+        session.close()
+        return
     if open_param == "luggage":
         player.is_luggage_open = True
         open_text = f"Игрок <b>{player.username}</b> вскрыл свой <b>багаж: {player.luggage}</b>"
@@ -109,35 +112,59 @@ async def open_callback_handler(callback: types.CallbackQuery):
 async def kick_callback_handler(callback: types.CallbackQuery):
     session = postgresDB.get_session()
     player = get_player_by_user_id(str(callback.from_user.id), session)
-    player.is_vote = True
-    session.add(player)
-    session.commit()
-    await bot.delete_message(chat_id=player.user_id, message_id=player.msg_id)
-    player.msg_id = None
-    open_param = callback.data.split('_')[1]
-    player = get_player_by_user_id(open_param, session)
-    player.voices_to_kick += 1
+    if player.game and player.game.start_time < datetime.datetime.now() and player.game.end_time is None:
+        player.is_vote = True
+        session.add(player)
+        session.commit()
+        try:
+            await bot.delete_message(chat_id=player.user_id, message_id=player.msg_id)
+        except aiogram.utils.exceptions.MessageIdentifierNotSpecified:
+            # нажал на старое сообщение
+            session.close()
+            await callback.answer()
+            return
+        player.msg_id = None
+        open_param = callback.data.split('_')[1]
+        player = get_player_by_user_id(open_param, session)
+        player.voices_to_kick += 1
 
-    session.add(player)
-    session.commit()
+        session.add(player)
+        session.commit()
 
-    chat_id = get_player_by_user_id(str(callback.message.chat.id), session).game.chat_id
-    cnt = 0
-    alive_players = get_alive_players_id_by_chat_id(str(chat_id), session)
+        chat_id = get_player_by_user_id(str(callback.message.chat.id), session).game.chat_id
+        cnt = 0
+        alive_players = get_alive_players_id_by_chat_id(str(chat_id), session)
 
-    for id in alive_players:
-        player = get_player_by_user_id(id, session)
-        cnt += player.is_vote
-    if cnt == len(alive_players):
-        session.close()
-        await kick(chat_id)
+        for id in alive_players:
+            player = get_player_by_user_id(id, session)
+            cnt += player.is_vote
+        if cnt == len(alive_players):
+            session.close()
+            await kick(chat_id)
     await callback.answer()
     session.close()
 
 
 async def discussion(chat_id: str, array=None):
-    await bot.send_message(chat_id=chat_id, text="<b>Время обсуждений!</b>", parse_mode="HTML")
+    session = postgresDB.get_session()
+    res = await bot.send_message(chat_id=chat_id, text="<b>Время обсуждений!</b>", parse_mode="HTML")
+    game = get_game_by_chat_id(chat_id, session)
+    game.invite_link_to_chat = res.url
+    session.add(game)
+    session.commit()
     #await asyncio.sleep()
+    for player in game.players:
+        person_msg_game_ = get_game_by_person_msg_id(str(player.person_msg_id), session)
+        if person_msg_game_ and person_msg_game_.end_time is None:  # проверка что чел в игре
+            buttons = [types.InlineKeyboardButton(text="Бункер", callback_data="change_person_msg_to_shelter"),
+                       types.InlineKeyboardButton(text="Апокалипсис", callback_data="change_person_msg_to_apocalypse"),
+                       types.InlineKeyboardButton(text="Перейти в чат", url=f'{player.game.invite_link_to_chat}')]
+            keyboard = types.InlineKeyboardMarkup(row_width=2)
+            keyboard.add(*buttons)
+            await bot.edit_message_text(message_id=player.person_msg_id,
+                text=get_me_text(player),
+                chat_id=player.user_id, reply_markup=keyboard, parse_mode="HTML")
+    session.close()
     await vote(chat_id, array)
 
 
@@ -151,6 +178,18 @@ async def vote(chat_id: str, re_vote_people=None):
     game.invite_link_to_chat = res.url
     session.add(game)
     session.commit()
+    for player in game.players:
+        person_msg_game_ = get_game_by_person_msg_id(str(player.person_msg_id), session)
+        if person_msg_game_ and person_msg_game_.end_time is None:  # проверка что чел в игре
+            buttons = [types.InlineKeyboardButton(text="Бункер", callback_data="change_person_msg_to_shelter"),
+                       types.InlineKeyboardButton(text="Апокалипсис", callback_data="change_person_msg_to_apocalypse"),
+                       types.InlineKeyboardButton(text="Перейти в чат", url=f'{player.game.invite_link_to_chat}')]
+            keyboard = types.InlineKeyboardMarkup(row_width=2)
+            keyboard.add(*buttons)
+            await bot.edit_message_text(message_id=player.person_msg_id,
+                text=get_me_text(player),
+                chat_id=player.user_id, reply_markup=keyboard, parse_mode="HTML")
+
     if re_vote_people is None:
         kickable = get_alive_players_id_by_chat_id(chat_id, session)
     else:
@@ -183,13 +222,72 @@ def create_buttons_to_voting(alive_players: list, current_player_user_id: str, s
 
 
 async def like_or_dislike_handler(callback: types.CallbackQuery):
-    name, chat_id = callback.data.split('!')
-    game = get_game_by_chat_id(chat_id,)
-    if name.split('_')[1] == 'like':
+    session = postgresDB.get_session()
+    name, chat_id, kickable_player_id = callback.data.split('!')
+    alive_players = get_alive_players_id_by_chat_id(chat_id, session)
+    kickable_player = get_player_by_user_id(kickable_player_id, session)
+    game = kickable_player.game
+    player = get_player_by_user_id(str(callback.from_user.id), session)
+    if not player.is_like_btn_pressed and player.user_id != kickable_player.user_id:
+        if 'like' in name.split('_')[1]:
+            if 'dislike' in name.split('_')[1]:
+                game.dislikes += 1
+            else:
+                game.likes += 1
+            session.add(game)
+            session.commit()
+            buttons = [types.InlineKeyboardButton(text=f"{game.likes} 👍", callback_data=f'press_like!{chat_id}!{kickable_player.user_id}'),
+                       types.InlineKeyboardButton(text=f"{game.dislikes} 👎", callback_data=f'press_dislike!{chat_id}!{kickable_player.user_id}')]
+            keyboard = types.InlineKeyboardMarkup(row_width=2)
+            keyboard.add(*buttons)
+            res = await bot.edit_message_text(chat_id=game.chat_id, message_id=game.final_vote_msg_id,
+                                        text=f"Уцелевшие решили выгнать <b>{kickable_player.username}</b> из убежища."
+                                                           f" <b>Вы действительно этого хотите?</b>",
+                                     reply_markup=keyboard, parse_mode="HTML")
 
-        await bot
+            game.invite_link_to_chat = res.url
+            session.add(game)
+            session.commit()
+            for player in game.players:
+                person_msg_game_ = get_game_by_person_msg_id(str(player.person_msg_id), session)
+                if person_msg_game_ and person_msg_game_.end_time is None:  # проверка что чел в игре
+                    buttons = [types.InlineKeyboardButton(text="Бункер", callback_data="change_person_msg_to_shelter"),
+                               types.InlineKeyboardButton(text="Апокалипсис",
+                                                          callback_data="change_person_msg_to_apocalypse"),
+                               types.InlineKeyboardButton(text="Перейти в чат",
+                                                          url=f'{game.invite_link_to_chat}')]
+                    keyboard = types.InlineKeyboardMarkup(row_width=2)
+                    keyboard.add(*buttons)
+                    await bot.edit_message_text(message_id=player.person_msg_id,
+                                                text=get_me_text(player),
+                                                chat_id=player.user_id, reply_markup=keyboard, parse_mode="HTML")
+
+            player.is_like_btn_pressed = True
+            session.add(player)
+            session.commit()
+        if game.likes + game.dislikes + 1 == len(alive_players):
+            if game.likes >= game.dislikes:
+                await bot.send_message(chat_id=chat_id, text=f"Путем голосования выгнали: {kickable_player.username}")
+                kickable_player.is_dead = True
+                session.add(player)
+                session.commit()
+                if len(alive_players) - 1 > get_chat_by_telegram_id(str(chat_id), session).settings.max_players:
+                    session.close()
+                    await round(str(chat_id))
+                else:
+                    game.end_time = datetime.datetime.now()
+                    await bot.send_message(chat_id=chat_id, text=f"Поздравляю игра закончилась")
+                    session.add(game)
+            else:
+                game.likes = 0
+                game.dislikes = 0
+                session.add(game)
+                await bot.send_message(chat_id=chat_id, text=f"Никого не кикнули")
+                await round(str(chat_id))
     else:
-        pass
+        await callback.answer()
+    session.commit()
+    session.close()
 
 
 async def kick(chat_id: str):
@@ -217,27 +315,17 @@ async def kick(chat_id: str):
         game = get_game_by_chat_id(chat_id, session)
         player = get_player_by_user_id(kick_users_id[0], session)
         username = player.username
-        #buttons = [types.InlineKeyboardButton(text="👍",callback_data=f'press_like!{chat_id}'),
-        #           types.InlineKeyboardButton(text="👎", callback_data=f'press_dislike!{chat_id}')]
-        #keyboard = types.InlineKeyboardMarkup(row_width=2)
-        #keyboard.add(*buttons)
-        #res = await bot.send_message(chat_id=chat_id, text=f"Уцелевшии решили выгнать <b>{username}</b> из убежища."
-        #                                                   f" <b>Вы действительно этого хотите?</b>")
-        #game.final_vote_msg_id = res.message_id
-        #session.add(game)
-        #session.commit()
-        await bot.send_message(chat_id=chat_id, text=f"Путем голосования выгнали: {username}")
-        player = get_player_by_user_id(kick_users_id[0], session)
-        player.is_dead = True
-        session.add(player)
+        buttons = [types.InlineKeyboardButton(text="👍", callback_data=f'press_like!{chat_id}!{player.user_id}'),
+                   types.InlineKeyboardButton(text="👎", callback_data=f'press_dislike!{chat_id}!{player.user_id}')]
+        keyboard = types.InlineKeyboardMarkup(row_width=2)
+        keyboard.add(*buttons)
+        res = await bot.send_message(chat_id=chat_id, text=f"Уцелевшии решили выгнать <b>{username}</b> из убежища."
+                                                           f" <b>Вы действительно этого хотите?</b>",
+                                     reply_markup=keyboard, parse_mode="HTML")
+        game.final_vote_msg_id = res.message_id
+        session.add(game)
         session.commit()
-        if len(alive_players) - len(kick_users_id) > get_user_by_user_id(game.host_id, session).settings.max_players:
-            session.close()
-            await round(chat_id)
-        else:
-            game.end_time = datetime.datetime.now()
-            await bot.send_message(chat_id=chat_id, text=f"Поздравляю игра закончилась")
-            session.add(game)
+
     for id in alive_players:
         player = get_player_by_user_id(id, session)
         player.voices_to_kick = 0
@@ -292,7 +380,25 @@ async def round(chat_id: str):
     else:
         text_1 = "Каждому игроку необходимо вскрыть <b>любой оставшийся параметр</b>"
         text_2 = "Нажмите кнопку с <b>нужной характеристикой</b>"
-    await bot.send_message(chat_id=chat_id, text=text_1, reply_markup=keyboard, parse_mode="HTML")
+    res = await bot.send_message(chat_id=chat_id, text=text_1, reply_markup=keyboard, parse_mode="HTML")
+
+    game.invite_link_to_chat = res.url
+    session.add(game)
+    session.commit()
+    for player in game.players:
+        person_msg_game_ = get_game_by_person_msg_id(str(player.person_msg_id), session)
+        if person_msg_game_ and person_msg_game_.end_time is None:  # проверка что чел в игре
+            buttons = [types.InlineKeyboardButton(text="Бункер", callback_data="change_person_msg_to_shelter"),
+                       types.InlineKeyboardButton(text="Апокалипсис",
+                                                  callback_data="change_person_msg_to_apocalypse"),
+                       types.InlineKeyboardButton(text="Перейти в чат",
+                                                  url=f'{game.invite_link_to_chat}')]
+            keyboard = types.InlineKeyboardMarkup(row_width=2)
+            keyboard.add(*buttons)
+            await bot.edit_message_text(message_id=player.person_msg_id,
+                                        text=get_me_text(player),
+                                        chat_id=player.user_id, reply_markup=keyboard, parse_mode="HTML")
+
     for id in get_alive_players_id_by_chat_id(chat_id, session):
         buttons = await create_buttons_to_open_param(id, session)
         keyboard = types.InlineKeyboardMarkup(row_width=2)
@@ -354,7 +460,6 @@ async def change_person_msg_to_apocalypse(callback: types.CallbackQuery):
         try:
             await bot.edit_message_text(message_id=player.person_msg_id, text=f"<b>{player.game.disaster}</b>",
                                     chat_id=callback.from_user.id, reply_markup=keyboard, parse_mode="HTML")
-            session.commit()
         except aiogram.utils.exceptions.MessageToEditNotFound:
             await callback.answer()  # человек нажал на старое сообщение
     else:
@@ -382,7 +487,6 @@ async def change_person_msg_to_shelter(callback: types.CallbackQuery):
             await bot.edit_message_text(message_id=player.person_msg_id,
                                 text=get_bunker_text(player.game), chat_id=callback.from_user.id,
                                 reply_markup=keyboard, parse_mode="HTML")
-            session.commit()
         except aiogram.utils.exceptions.MessageToEditNotFound:
             await callback.answer()  # человек нажал на старое сообщение
     else:
@@ -410,7 +514,6 @@ async def change_person_msg_to_me(callback: types.CallbackQuery):
             await bot.edit_message_text(message_id=player.person_msg_id,
                                 text=get_me_text(player),
                                 chat_id=callback.from_user.id, reply_markup=keyboard, parse_mode="HTML")
-            session.commit()
         except aiogram.utils.exceptions.MessageToEditNotFound:
             await callback.answer() # человек нажал на старое сообщение
     else:

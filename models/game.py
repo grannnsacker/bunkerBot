@@ -15,10 +15,9 @@ class Game(Base):
     chat_name = Column(String)
     start_message_id = Column(String)
     invite_link_to_chat = Column(String)
-    host_id = Column(Integer, ForeignKey('users.id'), index=True)
     final_vote_msg_id = Column(String)
     likes = Column(Integer, default=0)
-
+    dislikes = Column(Integer, default=0)
     '''disaster'''
     disaster = Column(String)
 

@@ -11,14 +11,18 @@ class Player(Base):
     game_id = Column(Integer, ForeignKey('games.id'), index=True)
     user_id = Column(String) # Telegram user id
     username = Column(String)
+
     msg_id = Column(String)  # field to save message id in cur private chat
     person_msg_id = Column(String)  # field to save message id, which will be swap me->apocalypses->shelter
     card_msg_id = Column(String)  # field to save card message id, which will be delete
+
     voices_to_kick = Column(Integer, default=0)
     is_vote = Column(Boolean, default=False)
     is_open_param = Column(Boolean, default=False)
+    is_like_btn_pressed = Column(Boolean, default=False)
     is_dead = Column(Boolean, default=False)
     is_need_to_be_in_rekick_vote = Column(Boolean, default=False)
+
     job = Column(String)
     is_job_open = Column(Boolean, default=False)
     sex = Column(String)

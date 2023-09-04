@@ -8,7 +8,7 @@ from store import Base
 class Setting(Base):
     __tablename__ = "settings"
     id = Column(Integer, primary_key=True)
-    user = relationship("User", back_populates="settings")
+    chat = relationship("Chat", back_populates="settings")
     max_players_in_shelter = Column(Integer, default=2)  # max_pla // 2 # how many people
     privileges_is_available = Column(Boolean, default=True)
     max_players = Column(Integer, default=10)

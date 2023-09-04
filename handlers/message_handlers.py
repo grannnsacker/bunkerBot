@@ -2,8 +2,10 @@ import datetime
 
 from aiogram import types
 
+from controlers.chat import get_chat_by_telegram_id, register_chat
 from controlers.game import get_game_by_chat_id, \
-    get_players_usernames_by_chat_id, get_message_id_by_chat_id, get_players_id_by_chat_id, get_turn_by_chat_id
+    get_players_usernames_by_chat_id, get_message_id_by_chat_id, get_players_id_by_chat_id, get_turn_by_chat_id, \
+    get_alive_players_id_by_chat_id
 from controlers.player import get_player_by_user_id
 from controlers.setting import get_settings_by_id
 from controlers.user import get_user_by_user_id, register_user, get_user_by_id
@@ -25,7 +27,7 @@ async def command_start(message: types.Message):
         if len(message.text.split()) > 1:
             chat_id = message.text.split()[1]
             game = get_game_by_chat_id(chat_id, session)
-            if len(game.players) + 1 <= get_user_by_id(game.host_id, session).settings.max_players \
+            if len(game.players) + 1 <= get_chat_by_telegram_id(game.chat_id, session).settings.max_players \
                     and message.from_user.username not in get_players_usernames_by_chat_id(chat_id, session):
                 game_person = generate_person()
                 game.players.append(
@@ -58,6 +60,9 @@ async def command_start(message: types.Message):
             keyboard.add(*buttons)
             await message.answer(text="Привет я бот-попуск", reply_markup=keyboard)
     else:
+        if get_chat_by_telegram_id(str(message.chat.id), session) is None:  # если чат не зареган, то регаю
+            register_chat(message.chat.id, message.chat.title, session)
+            session.commit()
         game = get_game_by_chat_id(str(message.chat.id), session)
 
         if game and game.start_time < datetime.datetime.now() and game.end_time is None:
@@ -67,7 +72,7 @@ async def command_start(message: types.Message):
                 return
             buttons = [
                 types.InlineKeyboardButton(text="Начать игру",
-                                           callback_data=f"start_game!{get_user_by_user_id(str(message.from_user.id), session).id}")
+                                           callback_data="start_game")
             ]
             keyboard = types.InlineKeyboardMarkup(row_width=1)
             keyboard.add(*buttons)
@@ -80,7 +85,7 @@ async def command_start(message: types.Message):
 async def command_me(message: types.Message):
     session = postgresDB.get_session()
     player = get_player_by_user_id(str(message.from_user.id), session)
-    if player.game and player.game.start_time < datetime.datetime.now() and player.game.end_time is None:
+    if player and player.game and player.game.start_time < datetime.datetime.now() and player.game.end_time is None:
         buttons = [types.InlineKeyboardButton(text="Апокалипсис", callback_data="change_person_msg_to_apocalypse"),
             types.InlineKeyboardButton(text="Бункер", callback_data="change_person_msg_to_shelter"),
                    types.InlineKeyboardButton(text="Перейти в чат", url=f'{player.game.invite_link_to_chat}')]
@@ -139,21 +144,27 @@ async def cancel_game(message: types.Message):
 
 async def command_card(message: types.Message):
     '''Команда открытия карточки'''
-    await bot.delete_message(message_id=message.message_id, chat_id=message.chat.id)
     session = postgresDB.get_session()
-    player = get_player_by_user_id(message.from_user.id, session)
-    if player and not player.is_card_1_open:
-        card_type, card_text = player.card_1.split("!")
-        buttons = [types.InlineKeyboardButton(text="Активировать карточку", callback_data=f"activate_action_card!{card_type}"),
-                   types.InlineKeyboardButton(text="Закрыть панель", callback_data="close_card_panel")]
-        keyboard = types.InlineKeyboardMarkup(row_width=2)
-        keyboard.add(*buttons)
-        res = await bot.send_message(chat_id=message.from_user.id, text=f"<b>{card_text}</b>",
-                                     reply_markup=keyboard,  # сделать чтобы первая буква была большой
-                                     parse_mode="HTML")
-        player.card_msg_id = res.message_id
-        session.add(player)
-        session.commit()
+    await bot.delete_message(message_id=message.message_id, chat_id=message.chat.id)
+    player = get_player_by_user_id(str(message.from_user.id), session)
+    if player and player.game and player.game.start_time < datetime.datetime.now() and player.game.end_time is None:
+        if not player.is_card_1_open:
+            card_type, card_text = player.card_1.split("!")
+            buttons = [types.InlineKeyboardButton(text="Активировать карточку", callback_data=f"activate_action_card!{card_type}"),
+                       types.InlineKeyboardButton(text="Закрыть панель", callback_data="close_card_panel")]
+            keyboard = types.InlineKeyboardMarkup(row_width=2)
+            keyboard.add(*buttons)
+            if len(get_alive_players_id_by_chat_id(player.game.chat_id, session)) == 1:
+                res = await bot.send_message(chat_id=message.from_user.id,
+                                             text=f"<b>В данный момент нет подходящих игроков</b>",
+                                             parse_mode="HTML")
+            else:
+                res = await bot.send_message(chat_id=message.from_user.id, text=f"<b>{card_text}</b>",
+                                             reply_markup=keyboard,  # сделать чтобы первая буква была большой
+                                             parse_mode="HTML")
+            player.card_msg_id = res.message_id
+            session.add(player)
+            session.commit()
 
     session.close()
 

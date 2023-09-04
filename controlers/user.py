@@ -6,16 +6,15 @@ from models import Setting, User
 
 
 def register_user(username: str, user_id: str, session: Session):
-    setting = create_based_setting(session)
-    user = User(username=username, user_id=user_id, settings_id=setting.id, settings=setting)
+    user = User(username=username, user_id=user_id)
     session.add(user)
 
 
 def get_user_by_user_id(user_id: str, session: Session):
-    user = session.query(User).filter_by(user_id=user_id).order_by(User.id.desc()).first()
+    user = session.query(User).filter_by(user_id=user_id).first()
     return user
 
 
 def get_user_by_id(id: int, session: Session):
-    user = session.query(User).filter_by(id=id).order_by(User.id.desc()).first()
+    user = session.query(User).filter_by(id=id).first()
     return user
